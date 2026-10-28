@@ -1,0 +1,51 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+version = '1.0.0'
+group = 'com.example.lyricssky'
+base { archivesName = 'LyricsSky-forge-1.20.1' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.console.level', 'debug'
+            mods { lyricssky { source sourceSets.main } }
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.lavalink.dev/releases' }
+}
+
+configurations {
+    shade
+    implementation.extendsFrom shade
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.20.1-47.3.0'
+    // Same engine Lavalink uses, embedded in the mod.
+    // Check https://github.com/lavalink-devs/youtube-source/releases for the newest version.
+    shade('dev.arbjerg:lavaplayer:2.2.2') { exclude group: 'org.slf4j' }
+    shade('dev.lavalink.youtube:v2:1.13.3') { exclude group: 'org.slf4j' }
+}
+
+shadowJar {
+    configurations = [project.configurations.shade]
+    archiveClassifier = ''
+    mergeServiceFiles()
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+}
+
+reobf { shadowJar {} }
+shadowJar.finalizedBy 'reobfShadowJar'
+jar { archiveClassifier = 'slim' }
+assemble.dependsOn shadowJar
