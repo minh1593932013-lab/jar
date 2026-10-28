@@ -30,22 +30,52 @@ public final class LrcLib {
                 .replaceAll("(?i)\\s*-\\s*topic$", "").replaceAll("\\s+", " ").trim();
     }
 
+    /**
+     * Looks lyrics up by song name only. The artist argument is kept for API compatibility but ignored.
+     * Never throws: any failure just means "no lyrics", so the music keeps playing regardless.
+     */
     public static List<LyricLine> fetch(String title, String artist, long durationMs) {
-        title = clean(title); artist = clean(artist);
-        String body = get("https://lrclib.net/api/get?track_name=" + enc(title) + "&artist_name=" + enc(artist)
-                + "&duration=" + (durationMs / 1000));
-        if (body != null) {
-            List<LyricLine> l = parse(JsonParser.parseString(body).getAsJsonObject());
+        try {
+            String name = clean(title == null ? "" : title);
+            if (name.isEmpty()) return List.of();
+
+            List<LyricLine> l = search(name, durationMs);
             if (!l.isEmpty()) return l;
-        }
-        body = get("https://lrclib.net/api/search?q=" + enc(title + " " + artist));
-        if (body != null) {
-            for (JsonElement e : JsonParser.parseString(body).getAsJsonArray()) {
-                List<LyricLine> l = parse(e.getAsJsonObject());
+
+            // YouTube titles are often "Artist - Song": retry with just the part after the dash.
+            int dash = name.indexOf(" - ");
+            if (dash > 0 && dash + 3 < name.length()) {
+                l = search(name.substring(dash + 3).trim(), durationMs);
                 if (!l.isEmpty()) return l;
             }
+        } catch (Throwable t) {
+            LyricsSkyMod.LOGGER.warn("Lyrics lookup failed", t);
         }
         return List.of();
+    }
+
+    /** Search LRCLIB by name and pick the synced result whose length is closest to the played track. */
+    private static List<LyricLine> search(String name, long durationMs) {
+        String body = get("https://lrclib.net/api/search?track_name=" + enc(name));
+        if (body == null) body = get("https://lrclib.net/api/search?q=" + enc(name));
+        if (body == null) return List.of();
+        try {
+            JsonElement root = JsonParser.parseString(body);
+            if (!root.isJsonArray()) return List.of();
+            List<LyricLine> best = List.of();
+            double bestDiff = Double.MAX_VALUE;
+            for (JsonElement e : root.getAsJsonArray()) {
+                if (!e.isJsonObject()) continue;
+                JsonObject o = e.getAsJsonObject();
+                List<LyricLine> l = parse(o);
+                if (l.isEmpty()) continue;
+                double diff = 0;
+                JsonElement d = o.get("duration");
+                if (d != null && !d.isJsonNull() && durationMs > 0) diff = Math.abs(d.getAsDouble() * 1000 - durationMs);
+                if (diff < bestDiff) { bestDiff = diff; best = l; }
+            }
+            return best;
+        } catch (Exception ex) { return List.of(); }
     }
 
     private static List<LyricLine> parse(JsonObject o) {
